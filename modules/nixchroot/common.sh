@@ -1,5 +1,5 @@
 # shellcheck shell=sh
-# Shared by post-fs-data.sh, service.sh, action.sh, uninstall.sh and nixroot.
+# Shared by post-fs-data.sh, service.sh, action.sh, uninstall.sh, bootstrap.sh and nixroot.
 # Runs under KernelSU's busybox ash (module stages) or the Android mksh with
 # busybox re-exec (nixroot). POSIX sh only.
 
@@ -48,7 +48,9 @@ has_mounts_below() {
 }
 
 rootfs_present() {
-  [ -d "$NIXROOT/nix/store" ] && [ -e "$NIXROOT/nix/var/nix/profiles/default" ]
+  # -L, not -e: the profile link points at an absolute /nix/store path that
+  # only resolves inside the chroot.
+  [ -d "$NIXROOT/nix/store" ] && [ -L "$NIXROOT/nix/var/nix/profiles/default" ]
 }
 
 same_ns_as_init() {

@@ -12,8 +12,18 @@
   else
     ui_print "- keeping existing /data/adb/nixchroot/config"
   fi
-  for f in nixroot system/bin/nixroot post-fs-data.sh service.sh action.sh uninstall.sh; do
+  for f in nixroot system/bin/nixroot bin/curl post-fs-data.sh service.sh action.sh uninstall.sh; do
     [ -e "$MODPATH/$f" ] && set_perm "$MODPATH/$f" 0 0 0755
   done
-  [ -d /data/local/nix/nix/store ] || ui_print "- no rootfs yet: run 'nix run .#install' from your machine"
+  # `nixroot` on PATH for `su -c nixroot`: KernelSU puts /data/adb/ksu/bin
+  # on su's PATH; the system/bin overlay only exists with a mounting metamodule.
+  if [ -d /data/adb/ksu/bin ]; then
+    ln -sf /data/adb/modules/nixchroot/nixroot /data/adb/ksu/bin/nixroot
+  fi
+  if [ -d /data/local/nix/nix/store ]; then
+    ui_print "- rootfs present at /data/local/nix"
+  else
+    ui_print "- no rootfs yet: reboot, then tap Action on this module"
+    ui_print "  (or: su -c 'nixroot --bootstrap'). Downloads ~1.2 GiB."
+  fi
 }

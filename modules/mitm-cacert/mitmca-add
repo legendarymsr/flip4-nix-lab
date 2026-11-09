@@ -9,7 +9,8 @@ NIXROOT=/data/local/nix
 # shellcheck disable=SC1091
 [ -r /data/adb/nixchroot/config ] && . /data/adb/nixchroot/config
 P=/nix/var/nix/profiles/default
-[ -x "$NIXROOT$P/bin/openssl" ] || [ -L "$NIXROOT$P/bin/openssl" ] || { echo "need openssl in $NIXROOT (or use mitm-ca-prep on the host)" >&2; exit 1; }
+# Probe inside the chroot: profile links are absolute /nix/store paths.
+chroot "$NIXROOT" $P/bin/openssl version >/dev/null 2>&1 || { echo "need the nixchroot rootfs at $NIXROOT (or use mitm-ca-prep on a PC)" >&2; exit 1; }
 mkdir -p /data/adb/mitmca/certs.d
 tmp=$NIXROOT/tmp/mitmca.$$.in
 cp "$1" "$tmp"

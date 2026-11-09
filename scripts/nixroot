@@ -8,6 +8,9 @@
 #   nixroot --remount       umount everything, then mount again (after config edits)
 #   nixroot --umount        unmount everything under $NIXROOT (stops sshd)
 #   nixroot --status        show mounts / sshd / namespace info
+#   nixroot --bootstrap [--force] [--file /sdcard/Download/flip4-nix-rootfs-aarch64.tar.gz]
+#                           download (resumable) + sha256-verify + extract the
+#                           rootfs on the phone, then mount it. No PC needed.
 #
 # Works from `adb shell su`, `su` in a terminal app (Termux etc.) and from
 # KernelSU's su in any mount namespace: if we are not in init's mount
@@ -53,7 +56,26 @@ command -v nixchroot_mount_core >/dev/null 2>&1 \
 sane_root
 R=$NIXROOT
 P=/nix/var/nix/profiles/default
-rootfs_present || die "no rootfs at $R (run the installer first)"
+
+if [ "$1" = --bootstrap ]; then
+  shift
+  BOOTSTRAP_FORCE=0; bsrc=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --force) BOOTSTRAP_FORCE=1 ;;
+      --file) bsrc=$2; shift ;;
+      *) bsrc=$1 ;;
+    esac
+    shift
+  done
+  MODDIR=/data/adb/modules/nixchroot
+  [ -r "$SELF_DIR/bootstrap.sh" ] && MODDIR=$SELF_DIR
+  # shellcheck source=modules/nixchroot/bootstrap.sh
+  . "$MODDIR/bootstrap.sh"
+  nixchroot_bootstrap "$bsrc"; exit $?
+fi
+
+rootfs_present || die "no rootfs at $R yet: tap Action on the nixchroot module, or run: su -c 'nixroot --bootstrap'"
 
 first_run() {
   [ -e "$R/.nix-db-pending" ] || return 0
@@ -84,7 +106,7 @@ case "$1" in
     [ -e "$R/.nix-db-pending" ] && echo "nix db: not loaded yet (enter once)"
     exit 0 ;;
   --help|-h)
-    sed -n '2,16p' "$0"; exit 0 ;;
+    sed -n '2,20p' "$0"; exit 0 ;;
 esac
 
 nixchroot_mount_core

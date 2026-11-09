@@ -7,3 +7,4 @@ MODDIR=${0%/*}
 # shellcheck source=modules/nixchroot/common.sh
 . "$MODDIR/common.sh"
 nixchroot_umount_all
+[ -L /data/adb/ksu/bin/nixroot ] && rm -f /data/adb/ksu/bin/nixroot

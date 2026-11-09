@@ -20,6 +20,47 @@ flake.nix
 
 `<sys>` is `x86_64-linux` or `aarch64-linux`; the rootfs is always aarch64.
 
+## Install on the phone (no PC)
+
+Needs: KernelSU manager (GKI), ~5 GiB free on `/data`, Wi-Fi. For a shell,
+install **Termux from F-Droid** (the Play Store build is outdated) and grant it
+root in KernelSU manager → Superuser.
+
+1. In the phone's browser, download both zips from the
+   [v0.2.0 release](https://github.com/legendarymsr/flip4-nix-lab/releases/tag/v0.2.0):
+   - [`nixchroot-v0.2.0.zip`](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.2.0/nixchroot-v0.2.0.zip)
+   - [`mitm-cacert-v0.2.0.zip`](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.2.0/mitm-cacert-v0.2.0.zip) (optional, only for MITM work)
+2. KernelSU manager → **Modules** → **Install** (install from storage) → pick
+   `nixchroot-v0.2.0.zip` from Downloads. Repeat for `mitm-cacert` if you want it.
+3. **Reboot**.
+4. KernelSU manager → Modules → nixchroot → **Action** (▶). It downloads the
+   rootfs (~1.2 GiB, resumable), verifies its sha256, extracts it to
+   `/data/local/nix` (~3 GiB), mounts it and prints `done`. Takes a few
+   minutes. If it's interrupted, just tap Action again; it resumes.
+   Same thing from Termux: `su -c 'nixroot --bootstrap'`.
+5. Enter it from Termux: `su -c nixroot`.
+
+Details:
+- The download is pinned to the v0.2.0 release asset and its sha256 is
+  baked into the module (`bootstrap.sh`). Nothing is extracted unless the hash
+  matches. The module ships a static aarch64 curl (stunnel/static-curl 8.23.0,
+  hash-pinned at build time) that verifies TLS against Android's CA store
+  and resolves names over DNS-over-HTTPS to 1.1.1.1 / 9.9.9.9, because a static
+  binary can't use Android's resolver. If that fails it falls back to
+  `/system/bin/curl`, then busybox `wget` (busybox wget doesn't check TLS
+  certificates; the sha256 check still applies).
+- Already downloaded the tarball in the browser? If
+  `/sdcard/Download/flip4-nix-rootfs-aarch64.tar.gz` exists, Action uses it
+  (after the sha256 check) and doesn't download anything. You can also run
+  `su -c 'nixroot --bootstrap --file /path/to/tarball'`.
+- Reinstall or upgrade: `su -c 'nixroot --bootstrap --force'` (unmounts first and
+  backs up `etc` to `etc.bak-<ts>`). The partial download sits in
+  `/data/local/tmp/nixchroot-dl/` and is deleted after a successful extract.
+- `nixroot` is linked into `/data/adb/ksu/bin` (on `su`'s PATH), so you don't
+  need a mounting metamodule.
+- mitm-cacert stays a plain flashable zip: put your CA in with
+  `su -c 'sh /data/adb/modules/mitm-cacert/mitmca-add <ca.pem>'` and reboot (see below).
+
 ## What's in the rootfs
 
 | | |
@@ -51,7 +92,9 @@ to change the set. Inside the chroot you can also just `nix shell nixpkgs#foo`.
   iptables-legacy tables managed by netd; use `/system/bin/iptables` from the
   Android side (see "Interception").
 
-## Building
+## Building it yourself (PC, optional)
+
+You only need this if you want to change the toolset; the release assets above are built from this flake.
 
 ```sh
 nix build .#rootfs          # -> result/flip4-nix-rootfs-aarch64.tar.gz (+ .sha256, store-paths)
@@ -112,7 +155,7 @@ is luck. Use binfmt unless you have a reason not to. (Cross store paths also
 differ from native ones, so `nix` on the phone can't substitute updates for
 them.)
 
-## Installing
+### Installing from a PC (adb)
 
 Prereqs on the phone: KernelSU manager → Superuser → grant **Shell**
 (`com.android.shell`) root. One UI 7: Settings → Security and privacy →
@@ -186,7 +229,7 @@ updates):
 |---|---|
 | `post-fs-data.sh` (blocking, before zygote, init mount ns) | self-bind `$NIXROOT` and `--make-private` it; `proc` (fresh instance, no Android `hidepid`), bind `/sys`, bind `/dev`, bind `/dev/pts`, tmpfs `/tmp` (1777) and `/run`, tmpfs `/dev/shm` + `/dev/fd`, `/dev/std*` links (`DEV_EXTRAS=1`), write `/etc/resolv.conf` from `DNS=` |
 | `service.sh` (late_start) | re-assert the above; background: wait for `sys.boot_completed` and first unlock, bind `SDCARD_SRC` → `/mnt/sdcard`, start sshd if enabled |
-| `action.sh` (manager "Action" button) | re-apply and print status |
+| `action.sh` (manager "Action" button) | no rootfs: download + verify + extract + mount (`bootstrap.sh`); otherwise re-apply and print status |
 | `uninstall.sh` | unmount only; never deletes the rootfs |
 
 Every mount checks `/proc/self/mountinfo` first, so all stages are

@@ -6,7 +6,7 @@
   outputs = { self, nixpkgs }:
     let
       inherit (nixpkgs) lib;
-      version = "0.1.0";
+      version = "0.2.0";
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = f: lib.genAttrs systems (system: f system nixpkgs.legacyPackages.${system});
 
@@ -30,6 +30,7 @@
           name = "nixchroot";
           src = ./modules/nixchroot;
           extraFiles = { "nixroot" = ./scripts/nixroot; };
+          pathFiles = { "bin/curl" = "${import ./nix/static-curl-aarch64.nix { inherit pkgs; }}/bin/curl"; };
         };
         ksu-mitm-cacert-module = import ./nix/ksu-module.nix {
           inherit pkgs version;
