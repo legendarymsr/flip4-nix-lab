@@ -1,0 +1,6 @@
+id=nixchroot
+name=Nix chroot (flip4 lab)
+version=@VERSION@
+versionCode=@VERSIONCODE@
+author=legend
+description=Sets up /data/local/nix as an aarch64 Nix chroot at boot: /dev,/dev/pts,/proc,/sys,/tmp,/run, optional /sdcard bind and sshd. Config: /data/adb/nixchroot/config

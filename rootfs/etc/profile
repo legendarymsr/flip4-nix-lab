@@ -1,0 +1,19 @@
+# /etc/profile for the flip4 Nix chroot
+export PATH=/root/.nix-profile/bin:/root/.nix-profile/sbin:/nix/var/nix/profiles/default/bin:/nix/var/nix/profiles/default/sbin
+export NIX_SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+export TERMINFO_DIRS=/nix/var/nix/profiles/default/share/terminfo
+export MANPATH=/nix/var/nix/profiles/default/share/man
+export LANG=C.UTF-8
+export TMPDIR=/tmp
+export PAGER=less
+export EDITOR=vim
+# Android leaks these through `su`; they mean nothing in here.
+unset ANDROID_ROOT ANDROID_DATA ANDROID_ART_ROOT ANDROID_I18N_ROOT ANDROID_TZDATA_ROOT \
+      ANDROID_ASSETS ANDROID_STORAGE BOOTCLASSPATH DEX2OATBOOTCLASSPATH SYSTEMSERVERCLASSPATH \
+      EXTERNAL_STORAGE ASEC_MOUNTPOINT LD_PRELOAD LD_LIBRARY_PATH
+# bash-completion
+if [ -n "$BASH_VERSION" ] && [ -r /nix/var/nix/profiles/default/etc/profile.d/bash_completion.sh ]; then
+  . /nix/var/nix/profiles/default/etc/profile.d/bash_completion.sh
+fi
+[ -n "$BASH_VERSION" ] && [ -r /etc/bashrc ] && . /etc/bashrc

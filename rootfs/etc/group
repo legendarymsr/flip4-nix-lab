@@ -1,0 +1,9 @@
+root:x:0:
+sshd:x:74:
+nogroup:x:65534:
+aid_inet:x:3003:root,sshd
+aid_net_raw:x:3004:root
+aid_net_admin:x:3005:root
+aid_sdcard_rw:x:1015:root
+aid_media_rw:x:1023:root
+aid_everybody:x:9997:root

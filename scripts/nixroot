@@ -1,0 +1,108 @@
+#!/system/bin/sh
+# shellcheck source-path=SCRIPTDIR/..
+# nixroot - enter the flip4 Nix chroot.
+#
+#   nixroot                 login shell (bash -l) as root
+#   nixroot CMD [ARGS...]   run CMD inside the chroot (PATH = lab profile)
+#   nixroot --mount         (re)apply mounts (incl. /sdcard) without entering
+#   nixroot --remount       umount everything, then mount again (after config edits)
+#   nixroot --umount        unmount everything under $NIXROOT (stops sshd)
+#   nixroot --status        show mounts / sshd / namespace info
+#
+# Works from `adb shell su`, `su` in a terminal app (Termux etc.) and from
+# KernelSU's su in any mount namespace: if we are not in init's mount
+# namespace we re-exec through nsenter so the chroot mounts are visible and
+# mounts we make are global.
+#
+# Config: /data/adb/nixchroot/config (NIXROOT=..., see config.default).
+
+# --- root + busybox ---------------------------------------------------------
+if [ "$(id -u 2>/dev/null)" != 0 ]; then
+  if command -v su >/dev/null 2>&1; then exec su -c "sh '$0' $*"; fi
+  echo "nixroot: need root" >&2; exit 1
+fi
+
+BB=""
+for b in /data/adb/ksu/bin/busybox /data/adb/magisk/busybox /data/adb/ap/bin/busybox; do
+  [ -x "$b" ] && { BB=$b; break; }
+done
+# Re-exec under busybox ash in standalone mode so mount/nsenter/chroot/cut
+# behave the same whether we came in via mksh+toybox or not.
+if [ -n "$BB" ] && [ -z "$NIXROOT_IN_BB" ]; then
+  NIXROOT_IN_BB=1 ASH_STANDALONE=1 exec "$BB" sh "$0" "$@"
+fi
+
+# --- global mount namespace --------------------------------------------------
+if [ "$(readlink /proc/self/ns/mnt)" != "$(readlink /proc/1/ns/mnt)" ] && [ -z "$NIXROOT_NSENTERED" ]; then
+  if command -v nsenter >/dev/null 2>&1; then
+    NIXROOT_NSENTERED=1 exec nsenter -t 1 -m -- "${BB:-/system/bin/sh}" ${BB:+sh} "$0" "$@"
+  else
+    echo "nixroot: warn: not in init mount ns and no nsenter; mounts may not be visible" >&2
+  fi
+fi
+
+# --- shared helpers ------------------------------------------------------------
+SELF_DIR=${0%/*}
+for c in "$SELF_DIR/common.sh" /data/adb/modules/nixchroot/common.sh; do
+  # shellcheck source=modules/nixchroot/common.sh
+  [ -r "$c" ] && { . "$c"; break; }
+done
+command -v nixchroot_mount_core >/dev/null 2>&1 \
+  || { echo "nixroot: common.sh not found (is the nixchroot KernelSU module installed?)" >&2; exit 1; }
+
+sane_root
+R=$NIXROOT
+P=/nix/var/nix/profiles/default
+rootfs_present || die "no rootfs at $R (run the installer first)"
+
+first_run() {
+  [ -e "$R/.nix-db-pending" ] || return 0
+  echo "nixroot: first entry: registering $(wc -l < "$R/nix-path-registration" 2>/dev/null || echo '?') lines of store metadata" >&2
+  if chroot "$R" $P/bin/env -i PATH=$P/bin HOME=/root \
+      $P/bin/nix-store --load-db < "$R/nix-path-registration"; then
+    rm -f "$R/.nix-db-pending"
+  else
+    die "nix-store --load-db failed"
+  fi
+  # seed the user profile channel-less; flakes are the intended workflow
+  mkdir -p "$R/root/.config/nix" "$R/root/.cache"
+}
+
+case "$1" in
+  --umount|-u)
+    nixchroot_umount_all; exit 0 ;;
+  --mount|-m)
+    nixchroot_mount_core; nixchroot_mount_sdcard; exit 0 ;;
+  --remount)
+    nixchroot_umount_all; nixchroot_mount_core; nixchroot_mount_sdcard; nixchroot_start_sshd; exit 0 ;;
+  --status|-s)
+    echo "NIXROOT=$R  ns=$(readlink /proc/self/ns/mnt)  init=$(readlink /proc/1/ns/mnt)"
+    echo "selinux: $(getenforce 2>/dev/null)  context: $(cat /proc/self/attr/current 2>/dev/null)"
+    echo "label:   $(ls -Zd "$R" 2>/dev/null)"
+    cut -d' ' -f5 /proc/self/mountinfo | grep "^$R" || echo "(no mounts)"
+    if p=$(sshd_pid); then echo "sshd: pid $p ($SSHD_LISTEN:$SSHD_PORT)"; else echo "sshd: not running"; fi
+    [ -e "$R/.nix-db-pending" ] && echo "nix db: not loaded yet (enter once)"
+    exit 0 ;;
+  --help|-h)
+    sed -n '2,16p' "$0"; exit 0 ;;
+esac
+
+nixchroot_mount_core
+first_run
+
+# `env -i ... bash -l`  or  `env -i ... CMD ARGS`
+if [ $# -eq 0 ]; then
+  cd / && exec chroot "$R" $P/bin/env -i \
+    HOME=/root USER=root LOGNAME=root SHELL=/bin/bash \
+    TERM="${TERM:-xterm-256color}" LANG=C.UTF-8 \
+    $P/bin/bash -l
+else
+  cd / && exec chroot "$R" $P/bin/env -i \
+    HOME=/root USER=root LOGNAME=root SHELL=/bin/bash \
+    TERM="${TERM:-xterm-256color}" LANG=C.UTF-8 TMPDIR=/tmp \
+    PATH=/root/.nix-profile/bin:$P/bin:$P/sbin \
+    NIX_SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    TERMINFO_DIRS=$P/share/terminfo \
+    "$@"
+fi

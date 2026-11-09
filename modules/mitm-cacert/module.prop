@@ -1,0 +1,6 @@
+id=mitm-cacert
+name=MITM CA as system cert (Android 14/15 APEX)
+version=@VERSION@
+versionCode=@VERSIONCODE@
+author=legend
+description=Adds CA certs from /data/adb/mitmca/certs.d to the Conscrypt APEX trust store (/apex/com.android.conscrypt/cacerts) in init, zygote and running app mount namespaces. LAB USE ONLY.

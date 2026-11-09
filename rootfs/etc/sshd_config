@@ -1,0 +1,20 @@
+# sshd inside the flip4 chroot. Port/ListenAddress are overridden on the
+# command line by the KernelSU module (SSHD_PORT / SSHD_LISTEN in
+# /data/adb/nixchroot/config). Default listen is 127.0.0.1: reach it with
+#   adb forward tcp:8022 tcp:8022 && ssh -p 8022 root@127.0.0.1
+Port 8022
+ListenAddress 127.0.0.1
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_ecdsa_key
+PermitRootLogin prohibit-password
+PubkeyAuthentication yes
+AuthorizedKeysFile /root/.ssh/authorized_keys
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+UsePAM no
+PidFile /run/sshd.pid
+PrintMotd no
+AllowTcpForwarding yes
+X11Forwarding no
+ClientAliveInterval 60
+Subsystem sftp internal-sftp

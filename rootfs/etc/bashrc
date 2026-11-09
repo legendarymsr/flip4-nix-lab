@@ -1,0 +1,9 @@
+# interactive bash defaults
+[[ $- == *i* ]] || return
+PS1='\[\e[1;31m\][flip4-nix]\[\e[0m\] \u@\h:\w\$ '
+HISTFILE=/root/.bash_history
+HISTSIZE=10000
+shopt -s histappend checkwinsize
+alias ll='ls -la --color=auto'
+alias frida-local='frida -H 127.0.0.1:27042'
+alias frida-ps-local='frida-ps -H 127.0.0.1:27042'

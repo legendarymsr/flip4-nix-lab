@@ -1,0 +1,12 @@
+# /data/adb/mitmca/config -- sourced by the mitm-cacert module.
+# Drop PEM certs named <subject_hash_old>.0 into /data/adb/mitmca/certs.d
+# (use `nix run .#mitm-ca-prep -- ca.pem` on the host, or `mitmca-add` here).
+
+# Keep watching for new zygote mount namespaces (zygote restart, soft reboot,
+# webview_zygote/app_zygote spawn) and re-inject. Cheap: one pidof per tick.
+WATCH=1
+WATCH_INTERVAL=15
+
+# Also overlay the legacy /system/etc/security/cacerts (pre-14 path; some
+# native code and a few OEM bits still read it directly).
+LEGACY_SYSTEM_STORE=1

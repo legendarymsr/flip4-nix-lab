@@ -1,0 +1,30 @@
+# /data/adb/nixchroot/config  -- sourced as POSIX sh by the nixchroot module
+# and by `nixroot`. Survives module updates. Edit and run
+# `nixroot --remount` (or reboot) to apply.
+
+# Chroot root. No spaces, must not be / or empty.
+NIXROOT=/data/local/nix
+
+# Bind Android shared storage into $NIXROOT/mnt/sdcard once the user has
+# unlocked the device (CE storage + FUSE are not there before that).
+BIND_SDCARD=1
+# /storage/emulated/0 goes through FUSE (MediaProvider permissions, sane
+# ownership for apps). /data/media/0 is the raw f2fs lower dir: faster, no
+# FUSE quirks, but files you create there are root-owned and apps may not see
+# them until a media rescan. Pick one.
+SDCARD_SRC=/storage/emulated/0
+
+# tmpfs on /dev/shm and /dev/fd,/dev/std* symlinks. Created in Android's /dev
+# (a tmpfs) because $NIXROOT/dev is a bind of it. Harmless, gone at reboot.
+DEV_EXTRAS=1
+
+# DNS for the chroot's glibc resolver (Android has no resolv.conf and the
+# chroot cannot use netd's resolver / Private DNS).
+DNS="1.1.1.1 9.9.9.9"
+
+# sshd inside the chroot. Keys: put your pubkey(s) in
+# /data/adb/nixchroot/authorized_keys; they are copied to /root/.ssh at start.
+SSHD=0
+SSHD_PORT=8022
+# 127.0.0.1 = only via `adb forward tcp:8022 tcp:8022`. 0.0.0.0 = Wi-Fi too.
+SSHD_LISTEN=127.0.0.1

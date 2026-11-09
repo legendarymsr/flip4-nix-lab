@@ -1,0 +1,21 @@
+#!/system/bin/sh
+# shellcheck source-path=SCRIPTDIR/../..
+# mitmca-add CERT.pem|CERT.cer  -- on-device: hash + install into certs.d.
+# Uses openssl from the Nix chroot (Android has none). Reboot to apply.
+#   mitmca-add /data/local/nix/root/.mitmproxy/mitmproxy-ca-cert.pem
+set -e
+[ -r "$1" ] || { echo "usage: $0 cert.pem" >&2; exit 1; }
+NIXROOT=/data/local/nix
+# shellcheck disable=SC1091
+[ -r /data/adb/nixchroot/config ] && . /data/adb/nixchroot/config
+P=/nix/var/nix/profiles/default
+[ -x "$NIXROOT$P/bin/openssl" ] || [ -L "$NIXROOT$P/bin/openssl" ] || { echo "need openssl in $NIXROOT (or use mitm-ca-prep on the host)" >&2; exit 1; }
+mkdir -p /data/adb/mitmca/certs.d
+tmp=$NIXROOT/tmp/mitmca.$$.in
+cp "$1" "$tmp"
+inform=PEM; grep -q 'BEGIN CERTIFICATE' "$tmp" || inform=DER
+h=$(chroot "$NIXROOT" $P/bin/openssl x509 -inform $inform -subject_hash_old -noout -in "/tmp/${tmp##*/}")
+chroot "$NIXROOT" $P/bin/openssl x509 -inform $inform -outform PEM -in "/tmp/${tmp##*/}" > "/data/adb/mitmca/certs.d/$h.0"
+rm -f "$tmp"
+chmod 644 "/data/adb/mitmca/certs.d/$h.0"
+echo "installed /data/adb/mitmca/certs.d/$h.0 -- reboot to apply"
