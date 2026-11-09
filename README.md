@@ -25,24 +25,28 @@ flake.nix
 | | |
 |---|---|
 | base | `nix` (single-user), bash, coreutils/findutils/grep/sed/awk, tar/gzip/xz/zstd, util-linux, procps, iproute2, ncurses (terminfo), cacert, openssh, openssl, curl, git, tmux, vim, strace |
-| lab | `frida-tools`, `mitmproxy`, `jadx`, `apktool` (decode-only, see below), `dex2jar`, `rizin`, `android-tools` (adb/fastboot), `tcpdump`, `nmap`, `socat`, `sqlite`, `binwalk`, `gdb` |
+| lab | `frida-tools`, `mitmproxy`, `jadx`, `apktool` (with aarch64 aapt2), `aapt`/`aapt2`, `dex2jar`, `rizin`, `android-tools` (adb/fastboot), `tcpdump`, `nmap`, `socat`, `sqlite`, `binwalk`, `gdb` |
 | python3 (3.14) | frida-python, androguard, pwntools, cryptography, pycryptodome, requests, httpx, websockets, protobuf, lxml, pyyaml, rich, ipython, capstone, keystone-engine, unicorn, lief, pyelftools, construct, hexdump, scapy, rzpipe |
 | helpers | `lab-frida-version` (which `frida-server` to put on the Android side) |
 
 Everything is pinned by `flake.lock` (nixos-unstable, rev `f4a03c0`, 2026-11-07). Edit `nix/lab-env.nix`
 to change the set. Inside the chroot you can also just `nix shell nixpkgs#foo`.
 
-**Dropped / modified:**
+**Notes / overrides:**
 
-- `apktool`: nixpkgs wraps it with Google's prebuilt `aapt`/`aapt2`, which is
-  only published for x86_64-linux/darwin (`meta.platforms`), so the stock
-  package refuses to evaluate on aarch64. The flake overrides `aapt` away:
-  `apktool d` (decode) works; `apktool b` needs `--aapt /path/to/aarch64/aapt2`
-  or do the rebuild + `apksigner` on your laptop.
-- `mitmproxy`: kept, but at the pinned rev its aarch64 build isn't in the
-  binary cache because two test cases fail (`test_tlsconfig.py::test_emudhra`,
-  a trust-store fixture, nothing arch-specific). The flake disables just
-  those two; the other 1829 tests pass, and the package is built locally.
+- `apktool` + `aapt`/`aapt2`: nixpkgs' apktool wraps Google's prebuilt aapt,
+  which is x86_64/darwin-only. This flake overrides it with a static aarch64
+  aapt2 (and aapt) from [lzhiyong/android-sdk-tools 35.0.2](https://github.com/lzhiyong/android-sdk-tools/releases/tag/35.0.2)
+  (NDK r27b, Android-30 static). See `nix/aapt-aarch64.nix`. Both `apktool d`
+  and `apktool b` work in the chroot.
+- `mitmproxy`: at the pinned 12.3.0, `test_emudhra` fails on every architecture
+  under CPython 3.14. CPython 3.14 hard-rejects the compromised eMudhra
+  intermediate SPKI that `--emudhra` deliberately uses
+  ([python/cpython#160040](https://github.com/python/cpython/issues/160040)),
+  and the 12.3.0 test drove the client side with stdlib `ssl`. Fixed by applying
+  upstream [mitmproxy#8568](https://github.com/mitmproxy/mitmproxy/pull/8568)
+  (`992052ee`) so the test uses mitmproxy's OpenSSL stack on both sides; full
+  suite passes with no tests disabled (`patches/mitmproxy-8568-…patch`).
 - `iptables` is intentionally **not** in the chroot. Android 15 uses
   iptables-legacy tables managed by netd; use `/system/bin/iptables` from the
   Android side (see "Interception").

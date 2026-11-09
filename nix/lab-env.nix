@@ -31,18 +31,23 @@ let
 
   # Prints the frida version the chroot speaks, i.e. the frida-server build you
   # need to push to the Android side (frida-server-<ver>-android-arm64).
-  # nixpkgs' apktool puts Google's prebuilt aapt/aapt2 on PATH, and that is
-  # x86_64-linux/darwin only. Decoding (`apktool d`) doesn't need aapt2, so keep
-  # apktool and drop aapt; for `apktool b` pass `--aapt /path/to/aarch64-aapt2`
-  # or rebuild the APK on your laptop.
-  apktool = pkgs.apktool.override { aapt = pkgs.emptyDirectory; };
+  # nixpkgs' apktool wraps Google's prebuilt aapt/aapt2, which is only published
+  # for x86_64-linux/darwin. On aarch64 we feed it a static aapt2 (and aapt)
+  # from lzhiyong/android-sdk-tools 35.0.2 — see nix/aapt-aarch64.nix.
+  aaptAarch64 = import ./aapt-aarch64.nix { inherit pkgs; };
+  apktool = pkgs.apktool.override { aapt = aaptAarch64; };
 
-  # At the pinned rev the aarch64 mitmproxy isn't in the binary cache because
-  # its test suite fails: test_tlsconfig.py::test_emudhra (2 cases, a
-  # cert-chain-vs-trust-store fixture, unrelated to the arch). Everything else
-  # passes (1829 tests under qemu); skip those two.
+  # mitmproxy 12.3.0's test_emudhra drives the client side of the handshake with
+  # stdlib ssl.SSLContext. CPython 3.14+ (python/cpython#160040) hard-rejects the
+  # compromised eMudhra intermediate SPKI that --emudhra deliberately uses, so
+  # the test fails on every arch with X509_V_ERR_CERT_REJECTED. Upstream
+  # mitmproxy#8568 (commit 992052ee, in main / post-12.3.1) rewrites the test to
+  # use mitmproxy's own OpenSSL stack on both sides; apply that patch and run
+  # the full suite with no tests disabled.
   mitmproxy = pkgs.mitmproxy.overridePythonAttrs (o: {
-    disabledTests = (o.disabledTests or [ ]) ++ [ "test_emudhra" ];
+    patches = (o.patches or [ ]) ++ [
+      ../patches/mitmproxy-8568-emudhra-avoid-stdlib-ssl.patch
+    ];
   });
 
   lab-frida-version = pkgs.writeShellScriptBin "lab-frida-version" ''
@@ -85,7 +90,8 @@ let
     frida-tools
     mitmproxy
     jadx
-    apktool          # decode-only on aarch64, see above
+    apktool
+    aaptAarch64     # aapt + aapt2 on PATH for apktool b / manual use
     dex2jar
     rizin
     android-tools  # adb/fastboot; `adb connect 127.0.0.1:5555` for on-device adbd over TCP
