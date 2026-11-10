@@ -1,0 +1,30 @@
+name: rootfs-pin
+# The phone installs the rootfs pinned in rootfs.json. If flake.lock moves
+# without a rebuilt + re-uploaded rootfs, phones and local builds get
+# different toolsets: fail loudly.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: rootfs.json lockHash == flake.lock nixpkgs narHash
+        run: |
+          want=$(jq -r .nodes.nixpkgs.locked.narHash flake.lock)
+          have=$(jq -r .lockHash rootfs.json)
+          rev=$(jq -r .nodes.nixpkgs.locked.rev flake.lock)
+          echo "flake.lock nixpkgs: $rev $want"
+          echo "rootfs.json:        $(jq -r .nixpkgs.rev rootfs.json) $have ($(jq -r .url rootfs.json))"
+          if [ "$want" != "$have" ]; then
+            echo "::error file=rootfs.json::The pinned rootfs was built from a different nixpkgs than flake.lock, so phones would get a different toolset. Fix: nix build .#rootfs, upload result/flip4-nix-rootfs-aarch64.tar.gz{,.sha256} and result/rootfs.json to a new release, run 'nix run .#pin-rootfs -- <tag>', and commit rootfs.json."
+            exit 1
+          fi
+          # URL must be a release asset of this repo and agree on the sha
+          jq -e '.url | startswith("https://github.com/legendarymsr/flip4-nix-lab/releases/download/")' rootfs.json
+          curl -fsSL "$(jq -r .url rootfs.json).sha256" | grep -q "$(jq -r .sha256 rootfs.json)" \
+            || { echo "::error file=rootfs.json::release asset .sha256 does not match rootfs.json"; exit 1; }

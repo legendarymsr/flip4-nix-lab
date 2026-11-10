@@ -1,0 +1,16 @@
+{
+  "url": "https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.3.2/flip4-nix-rootfs-aarch64.tar.gz",
+  "release": "v0.3.2",
+  "name": "flip4-nix-rootfs-aarch64.tar.gz",
+  "version": "0.3.2",
+  "sha256": "b0de0f7245822395b18b960296669d9a758b226db88bbdfa40b36d5c37295fbc",
+  "size": 1291294947,
+  "unpackedBytes": 3156460781,
+  "storePaths": 522,
+  "lockHash": "sha256-ziZn2PvCJE5JEEpqTdxXwJpPB+L3YqoCpTAMCzyaP3U=",
+  "nixpkgs": {
+    "rev": "f4a03c008967841f2a0b3cb7c436fc6fc31671f6",
+    "narHash": "sha256-ziZn2PvCJE5JEEpqTdxXwJpPB+L3YqoCpTAMCzyaP3U=",
+    "lastModified": 1794042290
+  }
+}

@@ -6,8 +6,8 @@
   outputs = { self, nixpkgs }:
     let
       inherit (nixpkgs) lib;
-      version = "0.3.1";
-      versionCode = 301;
+      version = "0.3.2";
+      versionCode = 302;
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = f: lib.genAttrs systems (system: f system nixpkgs.legacyPackages.${system});
 
@@ -22,8 +22,26 @@
         rootfs-tree = import ./nix/rootfs-tree.nix { pkgs = target; inherit lab-env; };
         # Assembly (closure walk + tar + gzip) runs on the *build* host, so on
         # x86_64 we don't burn time compressing GBs under qemu.
-        rootfs = import ./nix/rootfs.nix { pkgs = host; inherit rootfs-tree lab-env version; };
+        rootfs = import ./nix/rootfs.nix {
+          pkgs = host; inherit rootfs-tree lab-env version;
+          lock = { inherit (nixpkgs) rev narHash lastModified; };
+        };
       };
+
+      # The rootfs pin: ./rootfs.json (written by scripts/pin-rootfs.sh) is the
+      # single source for the URL/sha256 the on-device bootstrap fetches.
+      rootfsPin = builtins.fromJSON (builtins.readFile ./rootfs.json);
+      rootfsEnv = pkgs: pkgs.writeText "rootfs.env" (
+        let p = rootfsPin; in ''
+          # generated from rootfs.json; env overrides win (tests)
+          ROOTFS_URL=''${ROOTFS_URL:-${p.url}}
+          ROOTFS_SHA256=''${ROOTFS_SHA256:-${p.sha256}}
+          ROOTFS_SIZE=''${ROOTFS_SIZE:-${toString p.size}}
+          ROOTFS_UNPACKED_MB=${toString (p.unpackedBytes / 1048576)}
+          ROOTFS_STORE_PATHS=${toString p.storePaths}
+          ROOTFS_NIXPKGS_REV=${p.nixpkgs.rev}
+          ROOTFS_LOCK_HASH=${p.lockHash}
+        '');
 
       mkModules = pkgs: {
         ksu-module = import ./nix/ksu-module.nix {
@@ -31,7 +49,10 @@
           name = "nixchroot";
           src = ./modules/nixchroot;
           extraFiles = { "nixroot" = ./scripts/nixroot; };
-          pathFiles = { "bin/curl" = "${import ./nix/static-curl-aarch64.nix { inherit pkgs; }}/bin/curl"; };
+          pathFiles = {
+            "bin/curl" = "${import ./nix/static-curl-aarch64.nix { inherit pkgs; }}/bin/curl";
+            "rootfs.env" = rootfsEnv pkgs;
+          };
         };
         ksu-mitm-cacert-module = import ./nix/ksu-module.nix {
           inherit pkgs version;
@@ -52,6 +73,12 @@
           name = "flip4-mitm-ca-prep";
           runtimeInputs = with pkgs; [ android-tools openssl coreutils ];
           text = builtins.readFile ./scripts/mitm-ca-prep.sh;
+        };
+        pin-rootfs = pkgs.writeShellApplication {
+          name = "flip4-pin-rootfs";
+          runtimeInputs = with pkgs; [ jq coreutils ];
+          runtimeEnv.FLIP4_ROOTFS_DIR = "${lab.rootfs}";
+          text = builtins.readFile ./scripts/pin-rootfs.sh;
         };
         push-modules = pkgs.writeShellApplication {
           name = "flip4-push-modules";
@@ -103,6 +130,7 @@
         let s = self.packages.${system}; in {
           install = { type = "app"; program = lib.getExe s.install; meta.description = "adb push + extract rootfs to /data/local/nix"; };
           mitm-ca-prep = { type = "app"; program = lib.getExe s.mitm-ca-prep; meta.description = "hash a CA PEM to <subject_hash_old>.0 and push it"; };
+          pin-rootfs = { type = "app"; program = lib.getExe s.pin-rootfs; meta.description = "write rootfs.json for a release tag from the built rootfs"; };
           push-modules = { type = "app"; program = lib.getExe s.push-modules; meta.description = "adb push + ksud module install"; };
           default = self.apps.${system}.install;
         } // lib.optionalAttrs (system == "x86_64-linux") {
@@ -120,6 +148,13 @@
           java -cp $TMPDIR/t.jar:${pkgs.kotlin}/lib/kotlin-stdlib.jar LabTest | tee $out
         '';
       } // {
+        # Same check as .github/workflows/rootfs-pin.yml, offline.
+        rootfs-pin = pkgs.runCommand "flip4-lab-rootfs-pin" { } (
+          if rootfsPin.lockHash == nixpkgs.narHash then "touch $out" else ''
+            echo "rootfs.json pins a rootfs built from nixpkgs ${rootfsPin.lockHash}, flake.lock has ${nixpkgs.narHash}." >&2
+            echo "Rebuild (.#rootfs), re-upload, and run: nix run .#pin-rootfs -- <tag>" >&2
+            exit 1
+          '');
         shellcheck = pkgs.runCommand "flip4-lab-shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; } ''
           cd ${./.}
           # Phone-side scripts run under KernelSU's busybox ash / mksh: POSIX sh.
@@ -127,7 +162,7 @@
             modules/nixchroot/*.sh scripts/nixroot \
             modules/mitm-cacert/*.sh modules/mitm-cacert/mitmca-add
           # Host-side scripts are bash.
-          shellcheck -s bash scripts/install.sh scripts/mitm-ca-prep.sh scripts/push-modules.sh scripts/sign-apk.sh
+          shellcheck -s bash scripts/install.sh scripts/mitm-ca-prep.sh scripts/push-modules.sh scripts/sign-apk.sh scripts/pin-rootfs.sh
           touch $out
         '';
         modules = pkgs.runCommand "flip4-lab-module-zips" { nativeBuildInputs = [ pkgs.unzip ]; } ''

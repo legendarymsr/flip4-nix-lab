@@ -1,13 +1,14 @@
 # Tarball assembly. `pkgs` is the BUILD host's package set; the closure itself
 # is whatever arch rootfs-tree/lab-env are (aarch64). closureInfo only reads
 # references, so it doesn't care about the closure's architecture.
-{ pkgs, rootfs-tree, lab-env, version }:
+# lock: the nixpkgs input this was built from, recorded in rootfs.json.
+{ pkgs, rootfs-tree, lab-env, version, lock }:
 let
   closure = pkgs.closureInfo { rootPaths = [ rootfs-tree lab-env ]; };
 in
 pkgs.runCommand "flip4-nix-rootfs-aarch64-${version}"
   {
-    nativeBuildInputs = with pkgs; [ gnutar pigz ];
+    nativeBuildInputs = with pkgs; [ gnutar pigz jq ];
     passthru = { inherit closure rootfs-tree lab-env; };
   }
   ''
@@ -39,4 +40,22 @@ pkgs.runCommand "flip4-nix-rootfs-aarch64-${version}"
     sha256sum $out/flip4-nix-rootfs-aarch64.tar.gz | sed "s,  .*/,  ," > $out/flip4-nix-rootfs-aarch64.tar.gz.sha256
     cp ${closure}/store-paths $out/store-paths
     du -sb --apparent-size $(cat ${closure}/store-paths) | awk '{s+=$1} END {print s}' > $out/unpacked-bytes
+
+    # Manifest shipped beside the tarball; repo-root rootfs.json is this plus
+    # the release URL (scripts/pin-rootfs.sh). CI compares lockHash with flake.lock.
+    jq -n \
+      --arg name flip4-nix-rootfs-aarch64.tar.gz \
+      --arg version ${version} \
+      --arg sha256 "$(cut -d' ' -f1 $out/flip4-nix-rootfs-aarch64.tar.gz.sha256)" \
+      --argjson size "$(stat -c %s $out/flip4-nix-rootfs-aarch64.tar.gz)" \
+      --argjson unpackedBytes "$(cat $out/unpacked-bytes)" \
+      --argjson storePaths "$(wc -l < ${closure}/store-paths)" \
+      --arg lockHash ${lock.narHash} \
+      --arg nixpkgsRev ${lock.rev} \
+      --arg nixpkgsLastModified ${toString lock.lastModified} \
+      '{name: $name, version: $version, sha256: $sha256, size: $size,
+        unpackedBytes: $unpackedBytes, storePaths: $storePaths,
+        lockHash: $lockHash,
+        nixpkgs: {rev: $nixpkgsRev, narHash: $lockHash, lastModified: ($nixpkgsLastModified | tonumber)}}' \
+      > $out/rootfs.json
   ''

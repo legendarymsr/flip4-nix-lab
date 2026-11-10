@@ -11,6 +11,12 @@
     ui_print "- wrote default /data/adb/nixchroot/config"
   else
     ui_print "- keeping existing /data/adb/nixchroot/config"
+    # 0.3.1 and older defaulted to Cloudflare + Quad9; move the untouched
+    # default to Quad9 only (a DNS line the user edited is left alone).
+    if grep -q '^DNS="1.1.1.1 9.9.9.9"$' /data/adb/nixchroot/config; then
+      sed -i 's/^DNS="1.1.1.1 9.9.9.9"$/DNS="9.9.9.9 149.112.112.112 2620:fe::fe"/' /data/adb/nixchroot/config
+      ui_print "- DNS default changed to Quad9 only"
+    fi
   fi
   for f in nixroot system/bin/nixroot bin/curl post-fs-data.sh service.sh action.sh uninstall.sh; do
     [ -e "$MODPATH/$f" ] && set_perm "$MODPATH/$f" 0 0 0755

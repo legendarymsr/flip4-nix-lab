@@ -40,6 +40,9 @@ object Scripts {
         [ -r ${Paths.CONF} ] && . ${Paths.CONF}
         echo nixroot=${'$'}NIXROOT
         if [ -d "${'$'}NIXROOT/nix/store" ] && [ -L "${'$'}NIXROOT/nix/var/nix/profiles/default" ]; then echo rootfs=1; else echo rootfs=0; fi
+        echo rootfs_pin=$(. ${Paths.MOD}/rootfs.env 2>/dev/null; echo "${'$'}ROOTFS_SHA256")
+        echo rootfs_pin_rev=$(. ${Paths.MOD}/rootfs.env 2>/dev/null; echo "${'$'}ROOTFS_NIXPKGS_REV")
+        echo rootfs_installed=$(cat "${'$'}NIXROOT/.rootfs-sha256" 2>/dev/null)
         echo mounts=$(cut -d' ' -f5 /proc/1/mountinfo | grep -cE "^${'$'}NIXROOT(/|${'$'})")
         echo partial=$(stat -c %s ${Paths.DL_DIR}/${Paths.ROOTFS_NAME}.part 2>/dev/null || echo 0)
         p=$(cat ${Paths.JOB_PID} 2>/dev/null); [ -n "${'$'}p" ] && [ -d /proc/${'$'}p ] && echo job=1 || echo job=0
@@ -200,6 +203,8 @@ data class Status(val kv: Map<String, String>) {
     val rebootPending get() = module == "pending" || mitm == "pending"
     val mitm get() = kv["mitm"] ?: "none"
     val rootfs get() = kv["rootfs"] == "1"
+    /** Installed rootfs isn't the one this module pins (older installs have no marker). */
+    val rootfsOutdated get() = rootfs && !kv["rootfs_pin"].isNullOrEmpty() && kv["rootfs_installed"] != kv["rootfs_pin"]
     val mounts get() = kv["mounts"]?.toIntOrNull() ?: 0
     val mounted get() = mounts > 0
     val partialBytes get() = kv["partial"]?.toLongOrNull() ?: 0L
@@ -217,6 +222,7 @@ data class Status(val kv: Map<String, String>) {
         module != "installed" -> "Module is $module in KernelSU manager; re-enable it and reboot."
         jobRunning -> "Working… (you can leave the app; it keeps going)"
         !rootfs -> if (partialBytes > 0) "Tap Set up to resume the download." else "Tap Set up (downloads ~1.2 GiB)."
+        rootfsOutdated -> "Rootfs update available (toolset from nixpkgs ${kv["rootfs_pin_rev"]?.take(7) ?: "?"}): tap Reinstall."
         !mounted -> "Tap Mount (or reboot)."
         else -> "Ready. Tap Open shell."
     }

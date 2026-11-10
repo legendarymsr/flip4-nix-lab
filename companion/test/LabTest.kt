@@ -67,6 +67,10 @@ fun main() {
     check("next: setup", s("uid" to "0", "ksud" to "1", "module" to "installed", "rootfs" to "0").next.startsWith("Tap Set up (downloads"))
     check("next: resume", s("uid" to "0", "ksud" to "1", "module" to "installed", "rootfs" to "0", "partial" to "5").next.contains("resume"))
     check("next: mount", s("uid" to "0", "ksud" to "1", "module" to "installed", "rootfs" to "1", "mounts" to "0").next.startsWith("Tap Mount"))
+    check("next: update", s("uid" to "0", "ksud" to "1", "module" to "installed", "rootfs" to "1", "mounts" to "9",
+        "rootfs_pin" to "abc", "rootfs_pin_rev" to "0123456789", "rootfs_installed" to "").next.startsWith("Rootfs update available (toolset from nixpkgs 0123456)"))
+    check("not outdated when marker matches", !s("rootfs" to "1", "rootfs_pin" to "abc", "rootfs_installed" to "abc").rootfsOutdated)
+    check("not outdated without pin", !s("rootfs" to "1").rootfsOutdated)
     check("next: ready", s("uid" to "0", "ksud" to "1", "module" to "installed", "rootfs" to "1", "mounts" to "9").next.startsWith("Ready"))
 
     // progress lines exactly as bootstrap.sh prints them

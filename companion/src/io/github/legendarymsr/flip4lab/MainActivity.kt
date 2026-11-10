@@ -155,6 +155,7 @@ class MainActivity : Activity() {
             append("root ${yn(st.root)}  ksud ${yn(st.ksud)} ${st.kv["ksud_version"] ?: ""}\n")
             append("nixchroot ${st.module} ${st.kv["module_version"] ?: ""}   mitm-cacert ${st.mitm}\n")
             append("rootfs ${yn(st.rootfs)} at ${st.nixroot}   mounts ${st.mounts}")
+            if (st.rootfsOutdated) append("   (update available)")
             if (st.partialBytes > 0) append("\npartial download ${st.partialBytes / 1048576} MiB (resumable)")
             if (st.termux) append("\ntermux yes, external apps ${yn(st.termuxExternal)}")
         }

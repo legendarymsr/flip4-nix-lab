@@ -6,13 +6,15 @@
 # anything is extracted, so the transport (and busybox's non-verifying TLS,
 # if we ever fall back to it) can't hand us a different rootfs.
 
-ROOTFS_URL=${ROOTFS_URL:-https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.2.0/flip4-nix-rootfs-aarch64.tar.gz}
-ROOTFS_SHA256=${ROOTFS_SHA256:-88e34433ca4e351df07b80527b4e1c992b9dd516ec929cda01fbd4bb27fbf45d}
-ROOTFS_SIZE=${ROOTFS_SIZE:-1291305521}       # bytes, compressed
-ROOTFS_UNPACKED_MB=3011       # ~3.0 GiB extracted
+# The pin (URL, sha256, sizes, nixpkgs lock hash) lives in rootfs.env next to
+# this script, generated at module build time from the repo's rootfs.json.
+# shellcheck source=/dev/null
+[ -r "${MODDIR:-/data/adb/modules/nixchroot}/rootfs.env" ] && . "${MODDIR:-/data/adb/modules/nixchroot}/rootfs.env"
 ROOTFS_NAME=flip4-nix-rootfs-aarch64.tar.gz
-ROOTFS_STORE_PATHS=522        # top-level /nix/store entries, for progress
-BOOTSTRAP_DOH=${BOOTSTRAP_DOH:-https://1.1.1.1/dns-query https://9.9.9.9/dns-query}
+# DNS-over-HTTPS: Quad9 only. The DoH host is pinned to Quad9's anycast IPs
+# with --resolve (no resolver needed to find the resolver); IPv6 last.
+BOOTSTRAP_DOH_URL=${BOOTSTRAP_DOH_URL:-https://dns.quad9.net/dns-query}
+BOOTSTRAP_DOH_IPS=${BOOTSTRAP_DOH_IPS:-9.9.9.9 149.112.112.112 2620:fe::fe 2620:fe::9}
 
 # Downloads live on /data (same fs as the target, never FUSE /sdcard).
 DL_DIR=${DL_DIR:-/data/local/tmp/nixchroot-dl}
@@ -76,11 +78,14 @@ fetch_once() {
     say "downloader: bundled curl ($("$MODCURL" --version | head -1 | cut -d' ' -f1-2))"
     # Static musl curl can't use Android's netd resolver and there is no
     # /etc/resolv.conf, so resolve over DNS-over-HTTPS to an IP literal.
-    for _doh in $BOOTSTRAP_DOH; do
+    _doh_host=${BOOTSTRAP_DOH_URL#https://}; _doh_host=${_doh_host%%/*}
+    for _ip in $BOOTSTRAP_DOH_IPS; do
+      case "$_ip" in *:*) _rip="[$_ip]" ;; *) _rip=$_ip ;; esac
       # shellcheck disable=SC2086
       "$MODCURL" -fL --retry 3 --retry-delay 3 --connect-timeout 20 -sS \
-        --doh-url "$_doh" $_ca -C - -o "$DL_PART" "$ROOTFS_URL" \
-        || say "bundled curl via $_doh failed (rc=$?)"
+        --doh-url "$BOOTSTRAP_DOH_URL" --resolve "$_doh_host:443:$_rip" \
+        $_ca -C - -o "$DL_PART" "$ROOTFS_URL" \
+        || say "bundled curl via Quad9 DoH ($_ip) failed (rc=$?)"
       [ "$(file_size "$DL_PART")" -ge "$ROOTFS_SIZE" ] && return 0
     done
   fi
@@ -147,7 +152,7 @@ extract_rootfs() { # tarball
       say "refusing: $R has active mounts (use --force, or reboot with the module disabled)"; return 1
     fi
   fi
-  need=$((ROOTFS_UNPACKED_MB + 512))
+  need=$((${ROOTFS_UNPACKED_MB:-3100} + 512))
   avail=$(free_mb /data)
   say "/data free: ${avail} MiB, need ~${need} MiB to extract"
   [ "$avail" -ge "$need" ] 2>/dev/null || { say "not enough space on /data"; return 1; }
@@ -160,9 +165,9 @@ extract_rootfs() { # tarball
   say "extracting to $R (a few minutes) ..."
   ( while sleep 5; do
       # shellcheck disable=SC2012
-      n=$(ls "$R/nix/store" 2>/dev/null | wc -l); p=$((n * 100 / ROOTFS_STORE_PATHS))
+      n=$(ls "$R/nix/store" 2>/dev/null | wc -l); p=$((n * 100 / ${ROOTFS_STORE_PATHS:-1}))
       [ "$p" -gt 99 ] && p=99
-      echo "  extract: $n / $ROOTFS_STORE_PATHS store paths ($p%)"
+      echo "  extract: $n / ${ROOTFS_STORE_PATHS:-?} store paths ($p%)"
     done ) &
   _ep=$!
   if ! ( cd "$R" && bb gzip -dc "$1" | bb tar -xpf - ); then
@@ -171,6 +176,7 @@ extract_rootfs() { # tarball
   fi
   kill "$_ep" 2>/dev/null
   touch "$R/.nix-db-pending"
+  echo "$ROOTFS_SHA256" > "$R/.rootfs-sha256"   # which pin is installed (app shows updates)
   chown 0:0 "$R"; chmod 755 "$R"; chmod 1777 "$R/tmp"
   if ! { [ -L "$R/bin/sh" ] && [ -L "$R/nix/var/nix/profiles/default" ]; }; then
     say "rootfs looks incomplete"; return 1
@@ -181,8 +187,16 @@ extract_rootfs() { # tarball
 # bootstrap [local-file]
 nixchroot_bootstrap() {
   sane_root
+  if [ -z "$ROOTFS_URL" ] || [ -z "$ROOTFS_SHA256" ] || [ -z "$ROOTFS_SIZE" ]; then
+    say "module incomplete: no rootfs pin (rootfs.env) next to bootstrap.sh"; return 1
+  fi
   if rootfs_present && [ "$BOOTSTRAP_FORCE" != 1 ]; then
-    say "rootfs already installed at $NIXROOT (reinstall: su -c 'nixroot --bootstrap --force')"; return 0
+    if [ "$(cat "$NIXROOT/.rootfs-sha256" 2>/dev/null)" != "$ROOTFS_SHA256" ]; then
+      say "rootfs installed, but not the pinned one (nixpkgs ${ROOTFS_NIXPKGS_REV:-?}); update: su -c 'nixroot --bootstrap --force'"
+    else
+      say "rootfs already installed at $NIXROOT (reinstall: su -c 'nixroot --bootstrap --force')"
+    fi
+    return 0
   fi
   src=$1
   if [ -z "$src" ]; then
@@ -195,7 +209,7 @@ nixchroot_bootstrap() {
     verify_file "$src" || return 1
     tarball=$src
   else
-    need=$(( ROOTFS_SIZE / 1048576 + ROOTFS_UNPACKED_MB + 512 ))
+    need=$(( ROOTFS_SIZE / 1048576 + ${ROOTFS_UNPACKED_MB:-3100} + 512 ))
     avail=$(free_mb /data)
     [ "$avail" -ge "$need" ] 2>/dev/null || { say "need ~${need} MiB free on /data (have ${avail})"; return 1; }
     download_rootfs || return 1

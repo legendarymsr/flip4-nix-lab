@@ -25,7 +25,7 @@ flake.nix
 Needs: KernelSU (GKI) with its manager app, ~5 GiB free on `/data`, Wi-Fi.
 
 1. In the phone's browser, download
-   [**`flip4-nix-lab-0.3.1.apk`**](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.3.1/flip4-nix-lab-0.3.1.apk) and open it.
+   [**`flip4-nix-lab-0.3.2.apk`**](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.3.2/flip4-nix-lab-0.3.2.apk) and open it.
    Allow "install unknown apps" for the browser when asked. If Play Protect
    warns, tap **More details → Install anyway**. It's a sideloaded app that
    asks for root, so the warning is expected.
@@ -58,21 +58,23 @@ Store build is old.
 
 ### Without the app: module zips only
 
-1. Download [`nixchroot-v0.3.1.zip`](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.3.1/nixchroot-v0.3.1.zip)
-   (and optionally [`mitm-cacert-v0.3.1.zip`](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.3.1/mitm-cacert-v0.3.1.zip)) in the browser.
+1. Download [`nixchroot-v0.3.2.zip`](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.3.2/nixchroot-v0.3.2.zip)
+   (and optionally [`mitm-cacert-v0.3.2.zip`](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.3.2/mitm-cacert-v0.3.2.zip)) in the browser.
 2. KernelSU manager → **Modules** → **Install** → pick the zip(s) → **Reboot**.
 3. Modules → nixchroot → **Action** (▶), or in Termux: `su -c 'nixroot --bootstrap'`.
 4. Enter: `su -c nixroot`.
 
 Details:
-- The rootfs download is pinned to the
-  [v0.2.0 release asset](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.2.0/flip4-nix-rootfs-aarch64.tar.gz)
-  (it hasn't changed since; not re-uploaded) and its sha256
-  (`88e34433…f45d`) is baked into the module (`bootstrap.sh`). Nothing is
-  extracted unless the hash matches. The module ships a static aarch64 curl
+- The rootfs download is pinned in [`rootfs.json`](rootfs.json): the
+  release URL, the sha256, the sizes and the nixpkgs `narHash` (`lockHash`) it was
+  built from. The module build turns it into `rootfs.env` next to `bootstrap.sh`,
+  so the module (and therefore the app, which runs the module's bootstrap) has
+  exactly one pin. Nothing is extracted unless the sha256 matches. The module ships a static aarch64 curl
   (stunnel/static-curl 8.23.0, hash-pinned at build time) that verifies TLS
-  against Android's CA store and resolves names over DNS-over-HTTPS to
-  1.1.1.1 / 9.9.9.9, because a static binary can't use Android's resolver. If that
+  against Android's CA store and resolves names over DNS-over-HTTPS via
+  **Quad9 only** (`https://dns.quad9.net/dns-query`, pinned to 9.9.9.9, then
+  149.112.112.112, then 2620:fe::fe / 2620:fe::9), because a static binary can't
+  use Android's resolver. If that
   fails it falls back to `/system/bin/curl`, then busybox `wget` (busybox wget
   doesn't check TLS certificates; the sha256 check still applies).
 - If `/sdcard/Download/flip4-nix-rootfs-aarch64.tar.gz` exists, the bootstrap
@@ -102,6 +104,24 @@ the maintainer's key (certificate SHA-256
 The key is not in the repo; CI (`.github/workflows/companion-apk.yml`) signs with
 it from repository secrets when they're set, and otherwise uploads the debug build.
 Check a download with `apksigner verify --print-certs`.
+
+### Rootfs pin and updates
+
+`rootfs.json` must describe a rootfs built from the current `flake.lock`.
+The CI job `rootfs-pin` (and `nix flake check`'s `rootfs-pin`) fails if
+`lockHash` ≠ `flake.lock`'s nixpkgs `narHash`, or if the release asset's `.sha256`
+doesn't match. After bumping `flake.lock`:
+
+```sh
+nix build .#rootfs                       # result/{…tar.gz,.sha256,rootfs.json}
+gh release create vX.Y.Z result/flip4-nix-rootfs-aarch64.tar.gz{,.sha256} result/rootfs.json …
+nix run .#pin-rootfs -- vX.Y.Z           # rewrites ./rootfs.json (+ URL); commit it, rebuild modules/APK
+```
+
+On the phone, a rootfs that isn't the pinned one shows "Rootfs update
+available" in the app. Tap **Reinstall**, or run `su -c 'nixroot --bootstrap --force'`.
+Extraction only adds or overwrites files and deletes nothing you added;
+`/etc` is backed up to `etc.bak-<ts>` first.
 
 ## What's in the rootfs
 
@@ -418,8 +438,11 @@ chroot; use `-H`. Over USB from your laptop, `adb forward tcp:27042 tcp:27042`.
   f2fs; Nix's SQLite db is fine on it.
 - **DNS.** Android has no `/etc/resolv.conf` and the chroot's glibc can't
   talk to netd's resolver, so Private DNS / per-network DNS settings don't
-  apply inside. The module writes `DNS=` servers. On a captive or
-  DNS-filtered Wi-Fi, set `DNS` to the network's resolver.
+  apply inside. The module writes `DNS=` servers, by default Quad9 only
+  (`9.9.9.9 149.112.112.112 2620:fe::fe`). On a captive or
+  DNS-filtered Wi-Fi, set `DNS` to the network's resolver. Updating the
+  module from 0.3.1 or older rewrites the old default (`1.1.1.1 9.9.9.9`) in
+  `/data/adb/nixchroot/config`; a `DNS` line you changed yourself is kept.
 - **Paranoid networking.** If a non-root user in the chroot can't open
   sockets, it needs group `aid_inet` (3003) / `aid_net_raw` (3004); those
   groups are already in `/etc/group` and root/sshd are members.

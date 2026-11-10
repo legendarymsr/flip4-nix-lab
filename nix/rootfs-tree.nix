@@ -34,6 +34,6 @@ pkgs.runCommand "flip4-rootfs-tree" { } ''
   ln -s ca-certificates.crt $r/etc/ssl/certs/ca-bundle.crt
 
   # Written at boot by the KernelSU module (Android has no resolv.conf).
-  echo "nameserver 1.1.1.1" > $r/etc/resolv.conf
+  echo "nameserver 9.9.9.9" > $r/etc/resolv.conf
   echo flip4-lab > $r/etc/hostname
 ''
