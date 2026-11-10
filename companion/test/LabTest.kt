@@ -77,6 +77,32 @@ fun main() {
     check("progress none", ProgressParser.parse("downloader: bundled curl") == null)
     check("exit marker", ProgressParser.exitCode("FLIP4LAB_JOB_EXIT=0") == 0 && ProgressParser.exitCode("x") == null)
 
+    // Run in chroot
+    check("chroot: empty refused", Scripts.chrootCommand("  ").exceptionOrNull()?.message?.startsWith("Type a command") == true)
+    check("chroot: bare bash refused", Scripts.chrootCommand("bash").isFailure)
+    check("chroot: bare /bin/sh refused", Scripts.chrootCommand("/bin/sh").isFailure)
+    check("chroot: nix shell w/o -c refused", Scripts.chrootCommand("nix shell nixpkgs#hello").isFailure)
+    check("chroot: nix shell -c ok", Scripts.chrootCommand("nix shell nixpkgs#hello -c hello").isSuccess)
+    check("chroot: bash -c ok", Scripts.chrootCommand("bash -c 'echo hi'").isSuccess)
+    check("chroot: script", Scripts.chrootCommand("nix --version").getOrNull() ==
+        Scripts.nixroot("bash", "-lc", "exec </dev/null; nix --version"))
+    val (crc, cout) = sh("bash -lc ${shQuote("exec </dev/null; echo ok \$((1+1))")}")
+    check("chroot: inner script runs", crc == 0 && cout.trim() == "ok 2")
+
+    // Termux
+    check("sh -n termuxViaRoot", sh("sh -n -c ${shQuote(Scripts.termuxViaRoot)}").first == 0)
+    check("termux args", Scripts.termuxShellArgs == listOf("-c", "sh /data/adb/modules/nixchroot/nixroot"))
+    check("termuxViaRoot --esa has no stray commas", Scripts.termuxViaRoot.contains("'-c,sh /data/adb/modules/nixchroot/nixroot'"))
+    val th = kotlin.io.path.createTempDirectory("termux").toFile()
+    val ext = Scripts.enableTermuxExternal.replace(Paths.TERMUX_HOME, th.path).replace("am force-stop", "true")
+    val r1 = sh(ext).second; val r2 = sh(ext).second
+    check("termux ext: first run changes", r1.trim().endsWith("TERMUX_EXT=changed"))
+    check("termux ext: second run unchanged", r2.trim().endsWith("TERMUX_EXT=unchanged"))
+    java.io.File(th, ".termux/termux.properties").writeText("allow-external-apps = false\nfoo = 1\n")
+    check("termux ext: flips false", sh(ext).second.trim().endsWith("TERMUX_EXT=changed") &&
+        java.io.File(th, ".termux/termux.properties").readText() == "allow-external-apps = true\nfoo = 1\n")
+    th.deleteRecursively()
+
     if (failed > 0) { println("$failed FAILED"); kotlin.system.exitProcess(1) }
     println("all passed")
 }

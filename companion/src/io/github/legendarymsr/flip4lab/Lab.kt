@@ -123,12 +123,20 @@ object Scripts {
         sh ${Paths.MITM_MOD}/mitmca-add "${'$'}ca"
     """.trimIndent()
 
-    /** Let other apps (us) start commands in Termux: allow-external-apps=true. */
+    /**
+     * Let other apps (us) start commands in Termux: allow-external-apps=true.
+     * Idempotent: only writes, and only restarts Termux (so it re-reads the
+     * file), when the setting actually changes. Last line: TERMUX_EXT=changed|unchanged.
+     */
     val enableTermuxExternal = """
         H=${Paths.TERMUX_HOME}
         [ -d "${'$'}H" ] || { echo "Termux not installed (or never opened)"; exit 3; }
+        f="${'$'}H/.termux/termux.properties"
+        if grep -qs '^ *allow-external-apps *= *true *${'$'}' "${'$'}f"; then
+          echo "allow-external-apps already true"; echo TERMUX_EXT=unchanged; exit 0
+        fi
         own=$(stat -c %u:%g "${'$'}H")
-        mkdir -p "${'$'}H/.termux"; f="${'$'}H/.termux/termux.properties"
+        mkdir -p "${'$'}H/.termux"
         if grep -qs '^ *allow-external-apps *=' "${'$'}f"; then
           sed -i 's/^ *allow-external-apps *=.*/allow-external-apps = true/' "${'$'}f"
         else
@@ -136,9 +144,52 @@ object Scripts {
         fi
         chown "${'$'}own" "${'$'}H/.termux" "${'$'}f"; chmod 700 "${'$'}H/.termux"; chmod 600 "${'$'}f"
         restorecon -R "${'$'}H/.termux" 2>/dev/null
+        # Termux caches termux.properties; a restart makes it re-read them.
         am force-stop com.termux 2>/dev/null
-        echo "allow-external-apps = true written to ${'$'}f (Termux restarted)"
+        echo "allow-external-apps = true written to ${'$'}f (Termux restarted once)"
+        echo TERMUX_EXT=changed
     """.trimIndent()
+
+    /** Command Termux runs in its new foreground session. */
+    val termuxShellArgs = listOf("-c", "sh ${Paths.MOD}/nixroot")
+
+    /**
+     * Fallback that sidesteps background-start limits: root's `am` starts
+     * Termux's RunCommandService as a foreground service, after bringing
+     * TermuxActivity to the front.
+     */
+    val termuxViaRoot: String = """
+        am start -n com.termux/.app.TermuxActivity >/dev/null 2>&1
+        sleep 1
+        am start-foreground-service -n com.termux/.app.RunCommandService -a com.termux.RUN_COMMAND \
+          --es com.termux.RUN_COMMAND_PATH /system/bin/su \
+          --esa com.termux.RUN_COMMAND_ARGUMENTS ${shQuote(termuxShellArgs.joinToString(","))} \
+          --ez com.termux.RUN_COMMAND_BACKGROUND false \
+          --es com.termux.RUN_COMMAND_SESSION_ACTION 0
+    """.trimIndent()
+
+    private val interactive = setOf(
+        "bash", "sh", "zsh", "fish", "ash", "python", "python3", "ipython", "node", "irb",
+        "vim", "vi", "nvim", "nano", "less", "more", "top", "htop", "tmux", "screen",
+        "mitmproxy", "frida", "r2", "rizin", "gdb", "nix-shell", "ssh", "sqlite3",
+    )
+
+    /**
+     * Turn the "Run in chroot" text into a script, or explain why not.
+     * Commands get no stdin, so bare interactive programs are refused with a
+     * hint instead of exiting oddly.
+     */
+    fun chrootCommand(input: String): Result<String> {
+        val c = input.trim()
+        if (c.isEmpty()) return Result.failure(IllegalArgumentException("Type a command first, e.g. nix --version"))
+        val words = c.split(Regex("\\s+"))
+        val prog = words.first().substringAfterLast('/')
+        val bareShell = words.size == 1 && prog in interactive
+        val nixShell = prog == "nix" && words.getOrNull(1) in setOf("shell", "develop", "repl") && "-c" !in words && "--command" !in words
+        if (bareShell || nixShell)
+            return Result.failure(IllegalArgumentException("'$c' is interactive: use Open shell (Termux) for that. This box runs one-shot commands with no input."))
+        return Result.success(nixroot("bash", "-lc", "exec </dev/null; $c"))
+    }
 }
 
 data class Status(val kv: Map<String, String>) {

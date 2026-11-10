@@ -6,8 +6,8 @@
   outputs = { self, nixpkgs }:
     let
       inherit (nixpkgs) lib;
-      version = "0.3.0";
-      versionCode = 300;
+      version = "0.3.1";
+      versionCode = 301;
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = f: lib.genAttrs systems (system: f system nixpkgs.legacyPackages.${system});
 

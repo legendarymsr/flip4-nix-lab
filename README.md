@@ -25,7 +25,7 @@ flake.nix
 Needs: KernelSU (GKI) with its manager app, ~5 GiB free on `/data`, Wi-Fi.
 
 1. In the phone's browser, download
-   [**`flip4-nix-lab-0.3.0.apk`**](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.3.0/flip4-nix-lab-0.3.0.apk) and open it.
+   [**`flip4-nix-lab-0.3.1.apk`**](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.3.1/flip4-nix-lab-0.3.1.apk) and open it.
    Allow "install unknown apps" for the browser when asked. If Play Protect
    warns, tap **More details → Install anyway**. It's a sideloaded app that
    asks for root, so the warning is expected.
@@ -58,8 +58,8 @@ Store build is old.
 
 ### Without the app: module zips only
 
-1. Download [`nixchroot-v0.3.0.zip`](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.3.0/nixchroot-v0.3.0.zip)
-   (and optionally [`mitm-cacert-v0.3.0.zip`](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.3.0/mitm-cacert-v0.3.0.zip)) in the browser.
+1. Download [`nixchroot-v0.3.1.zip`](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.3.1/nixchroot-v0.3.1.zip)
+   (and optionally [`mitm-cacert-v0.3.1.zip`](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.3.1/mitm-cacert-v0.3.1.zip)) in the browser.
 2. KernelSU manager → **Modules** → **Install** → pick the zip(s) → **Reboot**.
 3. Modules → nixchroot → **Action** (▶), or in Termux: `su -c 'nixroot --bootstrap'`.
 4. Enter: `su -c nixroot`.

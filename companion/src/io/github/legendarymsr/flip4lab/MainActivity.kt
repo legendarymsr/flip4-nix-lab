@@ -89,7 +89,7 @@ class MainActivity : Activity() {
         col.addView(progressText)
 
         section("3 · Shell")
-        row("Open shell (Termux)" to { openTermux() }, "Allow Termux ext. apps" to { simple(Scripts.enableTermuxExternal) })
+        row("Open shell (Termux)" to { openTermux() }, "Allow Termux ext. apps" to { enableTermuxThenOpen(open = false) })
         cmdEdit = EditText(this).apply {
             hint = "command to run in the chroot, e.g. nix --version"
             typeface = Typeface.MONOSPACE; textSize = 13f
@@ -253,39 +253,64 @@ class MainActivity : Activity() {
     }
 
     private fun runInChroot() {
-        val c = cmdEdit.text.toString().trim()
-        if (c.isEmpty()) return
-        simple(Scripts.nixroot("bash", "-lc", c))
+        Scripts.chrootCommand(cmdEdit.text.toString()).fold(
+            onSuccess = { simple(it) },
+            onFailure = { toastLog(it.message ?: "bad command") },
+        )
     }
 
     private fun openTermux() {
         if (!st.termuxExternal) {
             AlertDialog.Builder(this)
-                .setMessage("Termux has to allow commands from other apps (allow-external-apps = true in ~/.termux/termux.properties). Set it now? Termux will be restarted.")
-                .setPositiveButton("Set it") { _, _ -> simple(Scripts.enableTermuxExternal) }
+                .setMessage("Termux has to allow commands from other apps (allow-external-apps = true in ~/.termux/termux.properties). Set it now via root? Termux is restarted once.")
+                .setPositiveButton("Set it") { _, _ -> enableTermuxThenOpen() }
                 .setNegativeButton("Cancel", null).show()
             return
         }
         if (checkSelfPermission(TERMUX_PERM) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(TERMUX_PERM), REQ_PERM); return
         }
+        launchTermux()
+    }
+
+    private fun enableTermuxThenOpen(open: Boolean = true) = bg {
+        var changed = false
+        val rc = RootShell.run(Scripts.enableTermuxExternal) { l ->
+            if (l == "TERMUX_EXT=changed") changed = true else log(l)
+        }
+        if (rc == 0 && open) ui.postDelayed({ loadStatusThen { openTermux() } }, if (changed) 800L else 0L)
+    }
+
+    private fun loadStatusThen(next: () -> Unit) = worker.execute { loadStatus(); ui.post(next) }
+
+    /**
+     * Ask Termux's RunCommandService for a new foreground session running
+     * `su -c nixroot`. It must be started with startForegroundService (Termux
+     * is usually not running, so a plain startService is a background start
+     * and Android 8+ refuses it); we call it while we're the visible app, and
+     * RunCommandService calls startForeground itself and brings the terminal
+     * to the front (BACKGROUND=false, SESSION_ACTION=0). If the platform still
+     * refuses, root's `am` starts TermuxActivity and then the service.
+     */
+    private fun launchTermux() {
         val i = Intent("com.termux.RUN_COMMAND")
             .setClassName("com.termux", "com.termux.app.RunCommandService")
             .putExtra("com.termux.RUN_COMMAND_PATH", "/system/bin/su")
-            .putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", "sh ${Paths.MOD}/nixroot"))
+            .putExtra("com.termux.RUN_COMMAND_ARGUMENTS", Scripts.termuxShellArgs.toTypedArray())
             .putExtra("com.termux.RUN_COMMAND_BACKGROUND", false)
             .putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0")
         try {
-            startService(i)
-            packageManager.getLaunchIntentForPackage("com.termux")?.let { startActivity(it) }
+            startForegroundService(i)
+            log("· opened a Termux session: su -c nixroot")
         } catch (e: Exception) {
-            log("Termux: $e")
+            log("Termux: ${e.javaClass.simpleName}; retrying via root am")
+            simple(Scripts.termuxViaRoot)
         }
     }
 
     override fun onRequestPermissionsResult(rc: Int, perms: Array<out String>, res: IntArray) {
         if (rc == REQ_PERM) {
-            if (res.firstOrNull() == PackageManager.PERMISSION_GRANTED) openTermux()
+            if (res.firstOrNull() == PackageManager.PERMISSION_GRANTED) launchTermux()
             else log("· Termux RUN_COMMAND permission denied (App info → Permissions → Additional permissions)")
         }
     }
