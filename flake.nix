@@ -6,7 +6,8 @@
   outputs = { self, nixpkgs }:
     let
       inherit (nixpkgs) lib;
-      version = "0.2.0";
+      version = "0.3.0";
+      versionCode = 300;
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = f: lib.genAttrs systems (system: f system nixpkgs.legacyPackages.${system});
 
@@ -80,6 +81,22 @@
             # Best effort; prefer `.#rootfs` with binfmt. See README.
             rootfs-cross = cross.rootfs;
             lab-env-cross = cross.lab-env;
+            # Android companion app (installs the modules it bundles, runs the
+            # bootstrap, opens Termux). Needs `extra-platforms = i686-linux`
+            # (androidenv's build-tools pull in a 32-bit ncurses).
+            companion-apk = import ./nix/companion-apk.nix {
+              inherit nixpkgs system version versionCode;
+              assets = {
+                "nixchroot.zip" = "${modules.ksu-module}/nixchroot-v${version}.zip";
+                "mitm-cacert.zip" = "${modules.ksu-mitm-cacert-module}/mitm-cacert-v${version}.zip";
+              };
+            };
+            # nix run .#sign-apk -- result/flip4-nix-lab-*-unsigned.apk out.apk
+            sign-apk = let sdk = self.packages.${system}.companion-apk.sdkRoot; in pkgs.writeShellApplication {
+              name = "flip4-sign-apk";
+              runtimeInputs = [ pkgs.jdk21_headless pkgs.gnugrep ];
+              text = "export PATH=${sdk}/build-tools/35.0.0:$PATH\n" + builtins.readFile ./scripts/sign-apk.sh;
+            };
           }));
 
       apps = forAllSystems (system: pkgs:
@@ -88,9 +105,21 @@
           mitm-ca-prep = { type = "app"; program = lib.getExe s.mitm-ca-prep; meta.description = "hash a CA PEM to <subject_hash_old>.0 and push it"; };
           push-modules = { type = "app"; program = lib.getExe s.push-modules; meta.description = "adb push + ksud module install"; };
           default = self.apps.${system}.install;
+        } // lib.optionalAttrs (system == "x86_64-linux") {
+          sign-apk = { type = "app"; program = lib.getExe s.sign-apk; meta.description = "sign the companion APK with your key"; };
         });
 
-      checks = forAllSystems (system: pkgs: {
+      checks = forAllSystems (system: pkgs: lib.optionalAttrs (system == "x86_64-linux") {
+        # JVM unit tests for the companion app's shell-command logic.
+        companion-tests = pkgs.runCommand "flip4-lab-companion-tests" {
+          nativeBuildInputs = with pkgs; [ kotlin jdk21_headless util-linux ];
+        } ''
+          export HOME=$TMPDIR
+          kotlinc ${./companion/src/io/github/legendarymsr/flip4lab/Lab.kt} ${./companion/test/LabTest.kt} \
+            -nowarn -d $TMPDIR/t.jar
+          java -cp $TMPDIR/t.jar:${pkgs.kotlin}/lib/kotlin-stdlib.jar LabTest | tee $out
+        '';
+      } // {
         shellcheck = pkgs.runCommand "flip4-lab-shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; } ''
           cd ${./.}
           # Phone-side scripts run under KernelSU's busybox ash / mksh: POSIX sh.
@@ -98,7 +127,7 @@
             modules/nixchroot/*.sh scripts/nixroot \
             modules/mitm-cacert/*.sh modules/mitm-cacert/mitmca-add
           # Host-side scripts are bash.
-          shellcheck -s bash scripts/install.sh scripts/mitm-ca-prep.sh scripts/push-modules.sh
+          shellcheck -s bash scripts/install.sh scripts/mitm-ca-prep.sh scripts/push-modules.sh scripts/sign-apk.sh
           touch $out
         '';
         modules = pkgs.runCommand "flip4-lab-module-zips" { nativeBuildInputs = [ pkgs.unzip ]; } ''

@@ -11,6 +11,7 @@ ROOTFS_SHA256=${ROOTFS_SHA256:-88e34433ca4e351df07b80527b4e1c992b9dd516ec929cda0
 ROOTFS_SIZE=${ROOTFS_SIZE:-1291305521}       # bytes, compressed
 ROOTFS_UNPACKED_MB=3011       # ~3.0 GiB extracted
 ROOTFS_NAME=flip4-nix-rootfs-aarch64.tar.gz
+ROOTFS_STORE_PATHS=522        # top-level /nix/store entries, for progress
 BOOTSTRAP_DOH=${BOOTSTRAP_DOH:-https://1.1.1.1/dns-query https://9.9.9.9/dns-query}
 
 # Downloads live on /data (same fs as the target, never FUSE /sdcard).
@@ -157,9 +158,18 @@ extract_rootfs() { # tarball
   fi
   mkdir -p "$R" && chown 0:0 "$R" && chmod 755 "$R"
   say "extracting to $R (a few minutes) ..."
+  ( while sleep 5; do
+      # shellcheck disable=SC2012
+      n=$(ls "$R/nix/store" 2>/dev/null | wc -l); p=$((n * 100 / ROOTFS_STORE_PATHS))
+      [ "$p" -gt 99 ] && p=99
+      echo "  extract: $n / $ROOTFS_STORE_PATHS store paths ($p%)"
+    done ) &
+  _ep=$!
   if ! ( cd "$R" && bb gzip -dc "$1" | bb tar -xpf - ); then
+    kill "$_ep" 2>/dev/null
     say "extraction failed"; return 1
   fi
+  kill "$_ep" 2>/dev/null
   touch "$R/.nix-db-pending"
   chown 0:0 "$R"; chmod 755 "$R"; chmod 1777 "$R/tmp"
   if ! { [ -L "$R/bin/sh" ] && [ -L "$R/nix/var/nix/profiles/default" ]; }; then

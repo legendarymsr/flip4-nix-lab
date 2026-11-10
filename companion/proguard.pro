@@ -1,0 +1,5 @@
+-keep class io.github.legendarymsr.flip4lab.MainActivity { *; }
+-dontwarn kotlin.**
+-dontobfuscate
+-allowaccessmodification
+-dontwarn org.jetbrains.annotations.**

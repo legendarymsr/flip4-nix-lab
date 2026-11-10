@@ -20,46 +20,88 @@ flake.nix
 
 `<sys>` is `x86_64-linux` or `aarch64-linux`; the rootfs is always aarch64.
 
-## Install on the phone (no PC)
+## Install on the phone (no PC): the app
 
-Needs: KernelSU manager (GKI), ~5 GiB free on `/data`, Wi-Fi. For a shell,
-install **Termux from F-Droid** (the Play Store build is outdated) and grant it
-root in KernelSU manager → Superuser.
+Needs: KernelSU (GKI) with its manager app, ~5 GiB free on `/data`, Wi-Fi.
 
-1. In the phone's browser, download both zips from the
-   [v0.2.0 release](https://github.com/legendarymsr/flip4-nix-lab/releases/tag/v0.2.0):
-   - [`nixchroot-v0.2.0.zip`](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.2.0/nixchroot-v0.2.0.zip)
-   - [`mitm-cacert-v0.2.0.zip`](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.2.0/mitm-cacert-v0.2.0.zip) (optional, only for MITM work)
-2. KernelSU manager → **Modules** → **Install** (install from storage) → pick
-   `nixchroot-v0.2.0.zip` from Downloads. Repeat for `mitm-cacert` if you want it.
-3. **Reboot**.
-4. KernelSU manager → Modules → nixchroot → **Action** (▶). It downloads the
-   rootfs (~1.2 GiB, resumable), verifies its sha256, extracts it to
-   `/data/local/nix` (~3 GiB), mounts it and prints `done`. Takes a few
-   minutes. If it's interrupted, just tap Action again; it resumes.
-   Same thing from Termux: `su -c 'nixroot --bootstrap'`.
-5. Enter it from Termux: `su -c nixroot`.
+1. In the phone's browser, download
+   [**`flip4-nix-lab-0.3.0.apk`**](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.3.0/flip4-nix-lab-0.3.0.apk) and open it.
+   Allow "install unknown apps" for the browser when asked. If Play Protect
+   warns, tap **More details → Install anyway**. It's a sideloaded app that
+   asks for root, so the warning is expected.
+2. **KernelSU manager → Superuser → Flip4 Nix Lab → on.** KernelSU has no
+   pop-up root prompt; the app just shows "Grant root" until you do this.
+   Then tap **Refresh** in the app.
+3. Tap **Install module** (tick *also install mitm-cacert* if you want
+   system-wide CA injection), then **Reboot**.
+4. Open the app again and tap **Set up**. It downloads the rootfs (~1.2 GiB, resumable),
+   verifies the sha256, extracts (~3 GiB) and mounts, with progress and the
+   live log. The job runs detached from the app as root (out of the app's
+   cgroup, with a wakelock), so you can leave the app; reopen it to re-attach. If it's
+   interrupted, tap **Set up** again and it resumes.
+5. Tap **Open shell (Termux)**. The first time it offers to set
+   `allow-external-apps = true` in Termux (via root) and asks for Termux's
+   "Run commands in Termux environment" permission. Without Termux, use the
+   **Run in chroot** box in the app (one-shot commands, output in the log).
+
+Other buttons: **Use local tarball…** (pick an already-downloaded
+`flip4-nix-rootfs-aarch64.tar.gz`; it's streamed to `/data` as root and
+sha256-checked), **Mount / Unmount**, **Reinstall** (`--bootstrap --force`),
+**Pick CA file… / Use chroot's mitmproxy CA** (runs `mitmca-add`, then
+reboot), **Status** (`nixroot --status`).
+
+What the app is: one Kotlin activity, ~90 KB of dex, no AndroidX and no Google
+services. Everything it does is a visible shell command run through `su`
+(see `companion/src/.../Lab.kt`). It bundles the two module zips from the
+same release. Get Termux from **F-Droid** (or its GitHub releases); the Play
+Store build is old.
+
+### Without the app: module zips only
+
+1. Download [`nixchroot-v0.3.0.zip`](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.3.0/nixchroot-v0.3.0.zip)
+   (and optionally [`mitm-cacert-v0.3.0.zip`](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.3.0/mitm-cacert-v0.3.0.zip)) in the browser.
+2. KernelSU manager → **Modules** → **Install** → pick the zip(s) → **Reboot**.
+3. Modules → nixchroot → **Action** (▶), or in Termux: `su -c 'nixroot --bootstrap'`.
+4. Enter: `su -c nixroot`.
 
 Details:
-- The download is pinned to the v0.2.0 release asset and its sha256 is
-  baked into the module (`bootstrap.sh`). Nothing is extracted unless the hash
-  matches. The module ships a static aarch64 curl (stunnel/static-curl 8.23.0,
-  hash-pinned at build time) that verifies TLS against Android's CA store
-  and resolves names over DNS-over-HTTPS to 1.1.1.1 / 9.9.9.9, because a static
-  binary can't use Android's resolver. If that fails it falls back to
-  `/system/bin/curl`, then busybox `wget` (busybox wget doesn't check TLS
-  certificates; the sha256 check still applies).
-- Already downloaded the tarball in the browser? If
-  `/sdcard/Download/flip4-nix-rootfs-aarch64.tar.gz` exists, Action uses it
-  (after the sha256 check) and doesn't download anything. You can also run
-  `su -c 'nixroot --bootstrap --file /path/to/tarball'`.
+- The rootfs download is pinned to the
+  [v0.2.0 release asset](https://github.com/legendarymsr/flip4-nix-lab/releases/download/v0.2.0/flip4-nix-rootfs-aarch64.tar.gz)
+  (it hasn't changed since; not re-uploaded) and its sha256
+  (`88e34433…f45d`) is baked into the module (`bootstrap.sh`). Nothing is
+  extracted unless the hash matches. The module ships a static aarch64 curl
+  (stunnel/static-curl 8.23.0, hash-pinned at build time) that verifies TLS
+  against Android's CA store and resolves names over DNS-over-HTTPS to
+  1.1.1.1 / 9.9.9.9, because a static binary can't use Android's resolver. If that
+  fails it falls back to `/system/bin/curl`, then busybox `wget` (busybox wget
+  doesn't check TLS certificates; the sha256 check still applies).
+- If `/sdcard/Download/flip4-nix-rootfs-aarch64.tar.gz` exists, the bootstrap
+  uses it instead of downloading. Or: `su -c 'nixroot --bootstrap --file /path'`.
 - Reinstall or upgrade: `su -c 'nixroot --bootstrap --force'` (unmounts first and
   backs up `etc` to `etc.bak-<ts>`). The partial download sits in
   `/data/local/tmp/nixchroot-dl/` and is deleted after a successful extract.
-- `nixroot` is linked into `/data/adb/ksu/bin` (on `su`'s PATH), so you don't
-  need a mounting metamodule.
-- mitm-cacert stays a plain flashable zip: put your CA in with
-  `su -c 'sh /data/adb/modules/mitm-cacert/mitmca-add <ca.pem>'` and reboot (see below).
+- `nixroot` is linked into `/data/adb/ksu/bin` (on `su`'s PATH), so no
+  mounting metamodule is needed.
+
+### Companion app: build and signing
+
+```sh
+nix build .#companion-apk          # result/flip4-nix-lab-<v>-unsigned.apk (reproducible) + -debug.apk
+nix build .#checks.x86_64-linux.companion-tests   # JVM tests of the shell-command logic
+FLIP4_KEYSTORE=release.jks FLIP4_KEY_PASS=... nix run .#sign-apk -- result/*-unsigned.apk out.apk
+```
+
+No Gradle: `nix/companion-apk.nix` runs aapt2, kotlinc, R8 and zipalign from a
+pinned androidenv SDK. androidenv's build-tools need a 32-bit ncurses, so add
+`extra-platforms = i686-linux` to `nix.conf` (x86_64 hosts only).
+The unsigned APK is bit-for-bit reproducible (checked with `nix build --rebuild`).
+`-debug.apk` is signed with a key generated during the build, so each build has a
+different signature and can't update another. Release APKs are signed with
+the maintainer's key (certificate SHA-256
+`32:FF:BC:59:9D:9E:2C:9E:98:58:64:71:C7:2B:85:B1:B2:AD:4D:23:B5:AE:90:FD:10:8A:81:5F:B3:AC:F1:5F`).
+The key is not in the repo; CI (`.github/workflows/companion-apk.yml`) signs with
+it from repository secrets when they're set, and otherwise uploads the debug build.
+Check a download with `apksigner verify --print-certs`.
 
 ## What's in the rootfs
 

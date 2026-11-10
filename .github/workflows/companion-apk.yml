@@ -1,0 +1,39 @@
+name: companion-apk
+on:
+  push:
+    branches: [main]
+    paths: [companion/**, nix/companion-apk.nix, nix/android-sdk.nix, modules/**, scripts/nixroot, flake.nix, flake.lock, .github/workflows/companion-apk.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            extra-platforms = i686-linux
+      - name: unit tests + shellcheck
+        run: nix build -L .#checks.x86_64-linux.companion-tests .#checks.x86_64-linux.shellcheck
+      - name: build (unsigned is reproducible)
+        run: nix build -L .#companion-apk -o apk && sha256sum apk/*.apk
+      - name: sign with the release key (if configured)
+        env:
+          KS_B64: ${{ secrets.FLIP4_KEYSTORE_B64 }}
+          FLIP4_KEY_PASS: ${{ secrets.FLIP4_KEY_PASS }}
+        run: |
+          mkdir -p out
+          if [ -n "$KS_B64" ]; then
+            umask 077; echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            FLIP4_KEYSTORE=$RUNNER_TEMP/release.jks nix run .#sign-apk -- apk/*-unsigned.apk out/flip4-nix-lab.apk
+            rm -f "$RUNNER_TEMP/release.jks"
+          else
+            cp apk/*-debug.apk out/flip4-nix-lab-debug.apk
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flip4-nix-lab-apk
+          path: out/*.apk

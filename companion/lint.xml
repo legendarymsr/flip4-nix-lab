@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- Root tool: these are real absolute device paths, not app storage. -->
+    <issue id="SdCardPath" severity="ignore" />
+    <!-- versionCode/versionName come from aapt2 link in nix/companion-apk.nix. -->
+    <issue id="MissingVersion" severity="ignore" />
+    <!-- targetSdk 35 = the phone's Android 15, on purpose. -->
+    <issue id="OldTargetApi" severity="ignore" />
+    <!-- English-only, no string resources to keep it small. -->
+    <issue id="SetTextI18n" severity="ignore" />
+    <!-- allowBackup=false; nothing to back up. -->
+    <issue id="DataExtractionRules" severity="ignore" />
+</lint>
